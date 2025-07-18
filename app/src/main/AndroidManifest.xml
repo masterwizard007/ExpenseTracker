@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.yourcompany.smstransactionreader">
+    package="ccom.project.expensetracker">
 
     <!-- SMS Permissions -->
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
     
     <!-- Internet permission for Expo and other services -->
     <uses-permission android:name="android.permission.INTERNET" />

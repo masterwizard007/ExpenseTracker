@@ -1,27 +1,31 @@
 import { Alert, PermissionsAndroid, Platform } from 'react-native';
 
-// Alternative: Use react-native-get-sms-android if react-native-sms-retriever doesn't work
-// import SmsAndroid from 'react-native-get-sms-android';
+// Use react-native-get-sms-android for better compatibility
+let SmsAndroid: any = null;
 
-let SmsRetriever: any = null;
-
-// Try to import SmsRetriever safely
+// Try to import SmsAndroid safely
 try {
-  SmsRetriever = require('react-native-sms-retriever').default;
+  SmsAndroid = require('react-native-get-sms-android').default;
 } catch (error) {
-  console.warn('SmsRetriever not available:', error);
+  console.warn('SmsAndroid not available:', error);
+  // Fallback: try react-native-sms-android
+  try {
+    SmsAndroid = require('react-native-sms-android').default;
+  } catch (fallbackError) {
+    console.warn('SMS Android fallback not available:', fallbackError);
+  }
 }
 
 interface SMSMessage {
-  id?: string;
+  _id?: string;
   body?: string;
-  message?: string;
-  text?: string;
   address?: string;
-  sender?: string;
-  from?: string;
   date?: string | number;
-  timestamp?: string | number;
+  date_sent?: string | number;
+  read?: string | number;
+  status?: string | number;
+  type?: string | number;
+  service_center?: string;
 }
 
 export interface TransactionData {
@@ -52,7 +56,7 @@ export const requestSMSPermission = async (): Promise<boolean> => {
       );
       return granted === PermissionsAndroid.RESULTS.GRANTED;
     } catch (err) {
-      console.warn(err);
+      console.warn('Permission request error:', err);
       return false;
     }
   }
@@ -61,10 +65,10 @@ export const requestSMSPermission = async (): Promise<boolean> => {
 
 // Check if SMS reading is available
 export const isSMSAvailable = (): boolean => {
-  return SmsRetriever !== null && typeof SmsRetriever.getMessages === 'function';
+  return SmsAndroid !== null && typeof SmsAndroid.list === 'function';
 };
 
-// Enhanced SMS processing for react-native-sms-retriever format
+// Enhanced SMS processing
 export const processSMS = (smsArray: SMSMessage[]): TransactionData[] => {
   const processedData: TransactionData[] = [];
   
@@ -73,15 +77,16 @@ export const processSMS = (smsArray: SMSMessage[]): TransactionData[] => {
     'HDFC', 'ICICI', 'SBI', 'AXIS', 'KOTAK', 'CANARA', 'BOB', 'PNB',
     'PAYTM', 'GPAY', 'PHONEPE', 'BHIM', 'AMAZONPAY', 'FREECHARGE',
     'MOBIKWIK', 'BANK', 'CREDIT', 'DEBIT', 'TRANSACTION', 'PAYMENT',
-    'UPI', 'NEFT', 'RTGS', 'IMPS', 'WALLET', 'CRED', 'RAZORPAY'
+    'UPI', 'NEFT', 'RTGS', 'IMPS', 'WALLET', 'CRED', 'RAZORPAY',
+    'YESBANK', 'INDUSIND', 'FEDERAL', 'BANDHAN', 'IDFC', 'RBL'
   ];
   
   smsArray.forEach((sms, index) => {
     try {
       // Handle different SMS formats
-      const smsBody = sms.body || sms.message || sms.text || '';
-      const smsAddress = sms.address || sms.sender || sms.from || '';
-      const smsDate = sms.date || sms.timestamp || Date.now();
+      const smsBody = sms.body || '';
+      const smsAddress = sms.address || '';
+      const smsDate = sms.date || sms.date_sent || Date.now();
       
       // Skip if essential data is missing
       if (!smsBody || !smsAddress) {
@@ -110,7 +115,9 @@ export const processSMS = (smsArray: SMSMessage[]): TransactionData[] => {
         smsBody.includes('INR') ||
         smsBody.includes('₹') ||
         smsBody.toLowerCase().includes('upi') ||
-        smsBody.toLowerCase().includes('net banking');
+        smsBody.toLowerCase().includes('net banking') ||
+        smsBody.toLowerCase().includes('balance') ||
+        smsBody.toLowerCase().includes('account');
 
       if (isTransactionSMS && hasTransactionKeywords) {
         // Multiple patterns to catch different amount formats
@@ -120,14 +127,15 @@ export const processSMS = (smsArray: SMSMessage[]): TransactionData[] => {
           /₹\s*(\d+(?:,\d+)*(?:\.\d+)?)/i,
           /\b(\d+(?:,\d+)*(?:\.\d+)?)\s*Rs/i,
           /amount\s*(?:of\s*)?(?:Rs\.?|₹|INR)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i,
-          /(?:paid|sent|received|debited|credited)\s*(?:Rs\.?|₹|INR)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i
+          /(?:paid|sent|received|debited|credited)\s*(?:Rs\.?|₹|INR)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i,
+          /(?:balance|bal)\s*(?:Rs\.?|₹|INR)?\s*(\d+(?:,\d+)*(?:\.\d+)?)/i
         ];
         
         let amount = 'Unknown';
         for (const pattern of amountPatterns) {
           const match = smsBody.match(pattern);
           if (match) {
-            amount = match[1];
+            amount = match[1].replace(/,/g, ''); // Remove commas
             break;
           }
         }
@@ -138,22 +146,28 @@ export const processSMS = (smsArray: SMSMessage[]): TransactionData[] => {
             smsBody.toLowerCase().includes('withdrawn') ||
             smsBody.toLowerCase().includes('sent') ||
             smsBody.toLowerCase().includes('paid') ||
-            smsBody.toLowerCase().includes('spent')) {
+            smsBody.toLowerCase().includes('spent') ||
+            smsBody.toLowerCase().includes('purchase')) {
           type = 'Debit';
         } else if (smsBody.toLowerCase().includes('credited') || 
                    smsBody.toLowerCase().includes('deposited') ||
                    smsBody.toLowerCase().includes('received') ||
-                   smsBody.toLowerCase().includes('refund')) {
+                   smsBody.toLowerCase().includes('refund') ||
+                   smsBody.toLowerCase().includes('cashback')) {
           type = 'Credit';
+        } else if (smsBody.toLowerCase().includes('balance') || 
+                   smsBody.toLowerCase().includes('available')) {
+          type = 'Balance';
         }
         
         // Extract merchant/description
         let description = 'Transaction';
         const merchantPatterns = [
-          /(?:at|to|from)\s+([A-Z][A-Z0-9\s]+?)(?:\s+on|\s+\d|\s*$)/i,
-          /(?:paid to|sent to|received from)\s+([A-Z][A-Z0-9\s]+?)(?:\s+on|\s+\d|\s*$)/i,
-          /UPI-([A-Z0-9\s]+?)(?:\s+\d|\s*$)/i,
-          /merchant\s+([A-Z][A-Z0-9\s]+?)(?:\s+on|\s+\d|\s*$)/i
+          /(?:at|to|from)\s+([A-Z][A-Z0-9\s&\-\.]+?)(?:\s+on|\s+\d|\s*$)/i,
+          /(?:paid to|sent to|received from)\s+([A-Z][A-Z0-9\s&\-\.]+?)(?:\s+on|\s+\d|\s*$)/i,
+          /UPI-([A-Z0-9\s&\-\.]+?)(?:\s+\d|\s*$)/i,
+          /merchant\s+([A-Z][A-Z0-9\s&\-\.]+?)(?:\s+on|\s+\d|\s*$)/i,
+          /(?:purchase|txn)\s+at\s+([A-Z][A-Z0-9\s&\-\.]+?)(?:\s+on|\s+\d|\s*$)/i
         ];
         
         for (const pattern of merchantPatterns) {
@@ -167,7 +181,8 @@ export const processSMS = (smsArray: SMSMessage[]): TransactionData[] => {
         // Create date object with error handling
         let dateObj: Date;
         try {
-          dateObj = new Date(typeof smsDate === 'string' ? parseInt(smsDate) : smsDate);
+          const dateValue = typeof smsDate === 'string' ? parseInt(smsDate) : smsDate;
+          dateObj = new Date(dateValue);
           if (isNaN(dateObj.getTime())) {
             dateObj = new Date();
           }
@@ -176,12 +191,12 @@ export const processSMS = (smsArray: SMSMessage[]): TransactionData[] => {
         }
         
         processedData.push({
-          id: sms.id || `${Date.now()}_${index}`,
+          id: sms._id || `${Date.now()}_${index}`,
           sender: smsAddress,
           amount: amount,
           type: type,
-          date: dateObj.toLocaleDateString(),
-          time: dateObj.toLocaleTimeString(),
+          date: dateObj.toLocaleDateString('en-IN'),
+          time: dateObj.toLocaleTimeString('en-IN'),
           description: description,
           message: smsBody.length > 100 ? smsBody.substring(0, 100) + '...' : smsBody,
           fullMessage: smsBody
@@ -204,7 +219,7 @@ export const processSMS = (smsArray: SMSMessage[]): TransactionData[] => {
   });
 };
 
-// Read SMS using react-native-sms-retriever with enhanced error handling
+// Read SMS using react-native-get-sms-android
 export const readSMS = async (
   setSmsData: (data: TransactionData[]) => void,
   setLoading: (loading: boolean) => void,
@@ -213,7 +228,7 @@ export const readSMS = async (
   if (!isSMSAvailable()) {
     Alert.alert(
       'SMS Reader Not Available', 
-      'Please make sure react-native-sms-retriever is properly installed and linked'
+      'Please make sure you have react-native-get-sms-android installed.\n\nRun: npm install react-native-get-sms-android'
     );
     return;
   }
@@ -228,28 +243,56 @@ export const readSMS = async (
   }
 
   try {
-    // Get all SMS messages with error handling
-    const messages = await SmsRetriever.getMessages();
-    
-    if (!Array.isArray(messages)) {
-      throw new Error('Invalid messages format received');
-    }
-    
-    console.log(`Total SMS count: ${messages.length}`);
-    
-    // Process the messages
-    const processedData = processSMS(messages);
-    setSmsData(processedData);
-    
-    if (saveToStorage) {
-      await saveToStorage(processedData);
-    }
-    
-    setLoading(false);
-    
-    Alert.alert(
-      'Success!', 
-      `Found ${processedData.length} transaction SMS out of ${messages.length} total messages`
+    // Filter options for getting SMS
+    const filter = {
+      box: 'inbox', // 'inbox' (default), 'sent', 'draft', 'outbox', 'failed', 'queued', and '' for all
+      minDate: 0, // timestamp (in milliseconds since UNIX epoch)
+      maxDate: Date.now(), // timestamp (in milliseconds since UNIX epoch)
+      maxCount: 10000, // limit the number of SMS to read
+    };
+
+    // Get SMS messages
+    SmsAndroid.list(
+      JSON.stringify(filter),
+      (fail: any) => {
+        console.error('Failed to get SMS:', fail);
+        Alert.alert('Error', 'Failed to read SMS: ' + fail);
+        setLoading(false);
+      },
+      (count: number, smsList: string) => {
+        try {
+          console.log(`Total SMS count: ${count}`);
+          
+          if (count === 0) {
+            setSmsData([]);
+            setLoading(false);
+            Alert.alert('No SMS Found', 'No SMS messages found on this device');
+            return;
+          }
+
+          const messages: SMSMessage[] = JSON.parse(smsList);
+          console.log('Sample SMS structure:', messages[0]);
+          
+          // Process the messages
+          const processedData = processSMS(messages);
+          setSmsData(processedData);
+          
+          if (saveToStorage) {
+            saveToStorage(processedData);
+          }
+          
+          setLoading(false);
+          
+          Alert.alert(
+            'Success!', 
+            `Found ${processedData.length} transaction SMS out of ${count} total messages`
+          );
+        } catch (error) {
+          console.error('Error parsing SMS data:', error);
+          Alert.alert('Error', 'Failed to parse SMS data: ' + (error as Error).message);
+          setLoading(false);
+        }
+      }
     );
   } catch (error) {
     console.error('Error reading SMS:', error);
@@ -268,7 +311,7 @@ export const readSMSFromPeriod = async (
   if (!isSMSAvailable()) {
     Alert.alert(
       'SMS Reader Not Available', 
-      'Please make sure react-native-sms-retriever is properly installed and linked'
+      'Please make sure you have react-native-get-sms-android installed.\n\nRun: npm install react-native-get-sms-android'
     );
     return;
   }
@@ -283,40 +326,55 @@ export const readSMSFromPeriod = async (
   }
 
   try {
-    // Get all messages
-    const messages = await SmsRetriever.getMessages();
-    
-    if (!Array.isArray(messages)) {
-      throw new Error('Invalid messages format received');
-    }
-    
-    // Filter messages from the last X days
+    // Calculate the date range
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysBack);
     
-    const recentMessages = messages.filter(sms => {
-      try {
-        const smsDate = new Date(typeof sms.date === 'string' ? parseInt(sms.date) : sms.date);
-        return smsDate >= cutoffDate;
-      } catch (error) {
-        return false;
+    const filter = {
+      box: 'inbox',
+      minDate: cutoffDate.getTime(),
+      maxDate: Date.now(),
+      maxCount: 5000,
+    };
+
+    SmsAndroid.list(
+      JSON.stringify(filter),
+      (fail: any) => {
+        console.error('Failed to get SMS:', fail);
+        Alert.alert('Error', 'Failed to read SMS: ' + fail);
+        setLoading(false);
+      },
+      (count: number, smsList: string) => {
+        try {
+          console.log(`Recent SMS count (${daysBack} days): ${count}`);
+          
+          if (count === 0) {
+            setSmsData([]);
+            setLoading(false);
+            Alert.alert('No Recent SMS', `No SMS messages found from the last ${daysBack} days`);
+            return;
+          }
+
+          const messages: SMSMessage[] = JSON.parse(smsList);
+          const processedData = processSMS(messages);
+          setSmsData(processedData);
+          
+          if (saveToStorage) {
+            saveToStorage(processedData);
+          }
+          
+          setLoading(false);
+          
+          Alert.alert(
+            'Success!', 
+            `Found ${processedData.length} transaction SMS from last ${daysBack} days`
+          );
+        } catch (error) {
+          console.error('Error parsing SMS data:', error);
+          Alert.alert('Error', 'Failed to parse SMS data: ' + (error as Error).message);
+          setLoading(false);
+        }
       }
-    });
-    
-    console.log(`Total SMS count: ${messages.length}, Recent: ${recentMessages.length}`);
-    
-    const processedData = processSMS(recentMessages);
-    setSmsData(processedData);
-    
-    if (saveToStorage) {
-      await saveToStorage(processedData);
-    }
-    
-    setLoading(false);
-    
-    Alert.alert(
-      'Success!', 
-      `Found ${processedData.length} transaction SMS from last ${daysBack} days`
     );
   } catch (error) {
     console.error('Error reading SMS:', error);
@@ -325,48 +383,18 @@ export const readSMSFromPeriod = async (
   }
 };
 
-// Optional: Listen for new SMS in real-time with error handling
+// Optional: Listen for new SMS in real-time
 export const startSMSListener = (
   setSmsData: (updater: (prev: TransactionData[]) => TransactionData[]) => void,
   smsData: TransactionData[],
   saveToStorage?: (data: TransactionData[]) => Promise<void>
 ): void => {
-  if (!isSMSAvailable()) {
-    console.warn('SMS Retriever not available for listening');
-    return;
-  }
-
-  try {
-    SmsRetriever.startSmsRetriever((message: SMSMessage) => {
-      console.log('New SMS received:', message);
-      try {
-        // Process new SMS and add to existing data
-        const newSmsData = processSMS([message]);
-        if (newSmsData.length > 0) {
-          // Add to existing SMS data
-          setSmsData(prevData => [newSmsData[0], ...prevData]);
-          if (saveToStorage) {
-            saveToStorage([newSmsData[0], ...smsData]);
-          }
-        }
-      } catch (error) {
-        console.error('Error processing new SMS:', error);
-      }
-    });
-  } catch (error) {
-    console.error('Failed to start SMS listener:', error);
-  }
+  console.log('SMS listener not implemented for react-native-get-sms-android');
+  // This library doesn't support real-time listening
+  // You would need to implement a separate SMS receiver service
 };
 
 // Stop SMS listener
 export const stopSMSListener = (): void => {
-  if (!isSMSAvailable()) {
-    return;
-  }
-
-  try {
-    SmsRetriever.removeSmsRetriever();
-  } catch (error) {
-    console.error('Failed to stop SMS listener:', error);
-  }
+  console.log('SMS listener stop not needed for react-native-get-sms-android');
 };
