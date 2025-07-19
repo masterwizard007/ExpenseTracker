@@ -1,19 +1,14 @@
 import { Alert, PermissionsAndroid, Platform } from 'react-native';
 
-// Use react-native-get-sms-android for better compatibility
+// Better import handling for react-native-get-sms-android
 let SmsAndroid: any = null;
 
-// Try to import SmsAndroid safely
 try {
-  SmsAndroid = require('react-native-get-sms-android').default;
+  // Try different import methods
+  const smsModule = require('react-native-get-sms-android');
+  SmsAndroid = smsModule.default || smsModule;
 } catch (error) {
-  console.warn('SmsAndroid not available:', error);
-  // Fallback: try react-native-sms-android
-  try {
-    SmsAndroid = require('react-native-sms-android').default;
-  } catch (fallbackError) {
-    console.warn('SMS Android fallback not available:', fallbackError);
-  }
+  console.warn('react-native-get-sms-android not available:', error);
 }
 
 interface SMSMessage {
@@ -63,12 +58,20 @@ export const requestSMSPermission = async (): Promise<boolean> => {
   return true;
 };
 
-// Check if SMS reading is available
+// Fixed SMS availability check
 export const isSMSAvailable = (): boolean => {
-  return SmsAndroid !== null && typeof SmsAndroid.list === 'function';
+  console.log('SmsAndroid object:', SmsAndroid);
+  console.log('SmsAndroid.list type:', typeof SmsAndroid?.list);
+  
+  return (
+    SmsAndroid !== null && 
+    SmsAndroid !== undefined && 
+    typeof SmsAndroid === 'object' &&
+    typeof SmsAndroid.list === 'function'
+  );
 };
 
-// Enhanced SMS processing
+// Enhanced SMS processing (same as before)
 export const processSMS = (smsArray: SMSMessage[]): TransactionData[] => {
   const processedData: TransactionData[] = [];
   
@@ -225,10 +228,12 @@ export const readSMS = async (
   setLoading: (loading: boolean) => void,
   saveToStorage?: (data: TransactionData[]) => Promise<void>
 ): Promise<void> => {
+  // Enhanced availability check
   if (!isSMSAvailable()) {
+    console.error('SMS module not available. SmsAndroid:', SmsAndroid);
     Alert.alert(
       'SMS Reader Not Available', 
-      'Please make sure you have react-native-get-sms-android installed.\n\nRun: npm install react-native-get-sms-android'
+      'The SMS reading module is not properly installed or configured.\n\nPlease ensure:\n1. react-native-get-sms-android is installed\n2. The app has been rebuilt\n3. You\'re running on Android device'
     );
     return;
   }
@@ -243,15 +248,13 @@ export const readSMS = async (
   }
 
   try {
-    // Filter options for getting SMS
     const filter = {
-      box: 'inbox', // 'inbox' (default), 'sent', 'draft', 'outbox', 'failed', 'queued', and '' for all
-      minDate: 0, // timestamp (in milliseconds since UNIX epoch)
-      maxDate: Date.now(), // timestamp (in milliseconds since UNIX epoch)
-      maxCount: 10000, // limit the number of SMS to read
+      box: 'inbox',
+      minDate: 0,
+      maxDate: Date.now(),
+      maxCount: 10000,
     };
 
-    // Get SMS messages
     SmsAndroid.list(
       JSON.stringify(filter),
       (fail: any) => {
@@ -271,9 +274,6 @@ export const readSMS = async (
           }
 
           const messages: SMSMessage[] = JSON.parse(smsList);
-          console.log('Sample SMS structure:', messages[0]);
-          
-          // Process the messages
           const processedData = processSMS(messages);
           setSmsData(processedData);
           
@@ -311,7 +311,7 @@ export const readSMSFromPeriod = async (
   if (!isSMSAvailable()) {
     Alert.alert(
       'SMS Reader Not Available', 
-      'Please make sure you have react-native-get-sms-android installed.\n\nRun: npm install react-native-get-sms-android'
+      'The SMS reading module is not properly installed or configured.\n\nPlease ensure:\n1. react-native-get-sms-android is installed\n2. The app has been rebuilt\n3. You\'re running on Android device'
     );
     return;
   }
@@ -326,7 +326,6 @@ export const readSMSFromPeriod = async (
   }
 
   try {
-    // Calculate the date range
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysBack);
     
@@ -383,18 +382,11 @@ export const readSMSFromPeriod = async (
   }
 };
 
-// Optional: Listen for new SMS in real-time
-export const startSMSListener = (
-  setSmsData: (updater: (prev: TransactionData[]) => TransactionData[]) => void,
-  smsData: TransactionData[],
-  saveToStorage?: (data: TransactionData[]) => Promise<void>
-): void => {
-  console.log('SMS listener not implemented for react-native-get-sms-android');
-  // This library doesn't support real-time listening
-  // You would need to implement a separate SMS receiver service
+// These functions are not needed for react-native-get-sms-android
+export const startSMSListener = () => {
+  console.log('Real-time SMS listening not supported by react-native-get-sms-android');
 };
 
-// Stop SMS listener
-export const stopSMSListener = (): void => {
-  console.log('SMS listener stop not needed for react-native-get-sms-android');
+export const stopSMSListener = () => {
+  console.log('SMS listener stop not needed');
 };

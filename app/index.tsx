@@ -11,20 +11,9 @@ import {
 import {
   isSMSAvailable,
   readSMS,
-  readSMSFromPeriod
+  readSMSFromPeriod,
+  TransactionData // Import the interface
 } from '../utils/smsReader'; // Move your SMS functions to utils folder
-
-interface TransactionData {
-  id: string;
-  sender: string;
-  amount: string;
-  type: string;
-  date: string;
-  time: string;
-  description: string;
-  message: string;
-  fullMessage: string;
-}
 
 // This is your main screen component that Expo Router expects
 export default function HomeScreen() {
@@ -43,11 +32,23 @@ export default function HomeScreen() {
   };
 
   const handleReadSMS = async () => {
-    await readSMS(setSmsData, setLoading, saveToStorage);
+    try {
+      await readSMS(setSmsData, setLoading, saveToStorage);
+    } catch (error) {
+      console.error('Error in handleReadSMS:', error);
+      Alert.alert('Error', 'Failed to read SMS: ' + (error as Error).message);
+      setLoading(false);
+    }
   };
 
   const handleReadRecentSMS = async () => {
-    await readSMSFromPeriod(30, setSmsData, setLoading, saveToStorage);
+    try {
+      await readSMSFromPeriod(30, setSmsData, setLoading, saveToStorage);
+    } catch (error) {
+      console.error('Error in handleReadRecentSMS:', error);
+      Alert.alert('Error', 'Failed to read recent SMS: ' + (error as Error).message);
+      setLoading(false);
+    }
   };
 
   const renderTransactionItem = ({ item }: { item: TransactionData }) => (
@@ -66,12 +67,19 @@ export default function HomeScreen() {
 
   useEffect(() => {
     // Check SMS availability on component mount
-    if (!isSMSAvailable()) {
-      Alert.alert(
-        'SMS Reader Not Available',
-        'Please make sure react-native-sms-retriever is properly installed'
-      );
-    }
+    const checkSMSAvailability = () => {
+      const isAvailable = isSMSAvailable();
+      console.log('SMS Available:', isAvailable);
+      
+      if (!isAvailable) {
+        Alert.alert(
+          'SMS Reader Not Available',
+          'The SMS reading library is not properly configured.\n\nPlease ensure:\n1. react-native-get-sms-android is installed\n2. You have rebuilt the app\n3. You are running on an Android device'
+        );
+      }
+    };
+
+    checkSMSAvailability();
   }, []);
 
   return (
@@ -80,7 +88,7 @@ export default function HomeScreen() {
       
       <View style={styles.buttonContainer}>
         <TouchableOpacity 
-          style={styles.button} 
+          style={[styles.button, loading && styles.buttonDisabled]} 
           onPress={handleReadSMS}
           disabled={loading}
         >
@@ -88,7 +96,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={styles.button} 
+          style={[styles.button, loading && styles.buttonDisabled]} 
           onPress={handleReadRecentSMS}
           disabled={loading}
         >
@@ -154,6 +162,9 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 8,
     marginHorizontal: 5,
+  },
+  buttonDisabled: {
+    backgroundColor: '#cccccc',
   },
   buttonText: {
     color: 'white',
