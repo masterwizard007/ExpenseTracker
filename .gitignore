@@ -37,9 +37,6 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
-<<<<<<< HEAD
 
 .vscode/
-=======
 .idx/
->>>>>>> fa5a787 (idx commit)
